@@ -110,13 +110,13 @@ let generate_random_buildings () =
   |> Sequence.to_list
 ;;
 
-let make_rendering input clock =
+let make_rendering input clock ~sprite_file =
   let open Draw_actions in
   let width = Float.of_int width in
   let height = Float.of_int height in
   let sprite =
     Sprite_sheet.load_exn
-      (Raylib.load_image (Sys.get_argv ()).(0))
+      (Raylib.load_image sprite_file)
       ~framecounts:`Auto_detect
       ~width:32
       ~height:32
@@ -248,4 +248,4 @@ let config : Engine.Config.t =
   }
 ;;
 
-let run () = Engine.run config input make_rendering
+let run sprite_file = Engine.run config input (make_rendering ~sprite_file)
