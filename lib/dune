@@ -1,0 +1,5 @@
+(library
+ (name game)
+ (libraries core raylib incremental)
+ (preprocess
+  (pps ppx_jane)))
