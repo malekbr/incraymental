@@ -1,5 +1,5 @@
 (library
  (name game)
- (libraries core raylib incremental)
+ (libraries core raylib incremental bonsai bonsai.driver)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane bonsai.ppx_bonsai)))

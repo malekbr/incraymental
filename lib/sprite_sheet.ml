@@ -1,9 +1,11 @@
 open! Core
+open! Bonsai
+open Bonsai.Let_syntax
 
 type -'row t =
   { width : int
   ; height : int
-  ; sprite_sheet : Raylib.Texture2D.t
+  ; sprite_sheet : Raylib.Texture2D.t lazy_t
   ; framecounts : int array
   ; row_selector : 'row -> int
   ; row_equal : 'row -> 'row -> bool
@@ -12,7 +14,7 @@ type -'row t =
 module State = struct
   type 'row t =
     { selected_row : 'row
-    ; current_frame : [ `Cycle of Time_ns.Span.t | `Constant of int ]
+    ; current_frame : [ `Cycle_every_n_frames of int | `Constant of int ]
     }
   [@@deriving equal]
 end
@@ -68,56 +70,88 @@ let load_exn sprite_sheet ~framecounts ~width ~height ~row_selector ~row_equal =
   in
   { width
   ; height
-  ; sprite_sheet = Raylib.load_texture_from_image sprite_sheet
+  ; sprite_sheet = lazy (Raylib.load_texture_from_image sprite_sheet)
   ; framecounts
   ; row_selector
   ; row_equal
   }
 ;;
 
+let cycle_frames ~every_n_frame ~count =
+  let%sub frame, set_frame = state (module Int) ~default_model:0 in
+  let%sub remaining_frames, set_remaining_frames = state (module Int) ~default_model:1 in
+  let%sub () =
+    Edge.lifecycle
+      ~on_activate:
+        (let%map set_remaining_frames = set_remaining_frames
+         and every_n_frame = every_n_frame in
+         set_remaining_frames every_n_frame)
+      ~after_display:
+        (let%map set_remaining_frames = set_remaining_frames
+         and remaining_frames = remaining_frames
+         and count = count
+         and every_n_frame = every_n_frame
+         and frame = frame
+         and set_frame = set_frame in
+         let remaining_frames = remaining_frames - 1 in
+         if remaining_frames < 0
+         then assert false
+         else if remaining_frames = 0
+         then
+           Ui_effect.Many
+             [ set_frame ((frame + 1) mod count); set_remaining_frames every_n_frame ]
+         else set_remaining_frames remaining_frames)
+      ()
+  in
+  return frame
+;;
+
 let create
   t
-  ?(flip_x = Incr.return false)
-  ?(flip_y = Incr.return false)
-  ?(tint = Incr.return Raylib.Color.white)
+  ?(flip_x = Bonsai.Value.return false)
+  ?(flip_y = Bonsai.Value.return false)
+  ?(tint = Bonsai.Value.return Raylib.Color.white)
   state
   ~target
-  ~clock
   =
-  let input = Incr.map state ~f:Fn.id in
-  Incr.set_cutoff input (Incr.Cutoff.of_equal (State.equal t.row_equal));
-  let of_state { State.selected_row; current_frame } =
+  let state = Bonsai.Value.cutoff state ~equal:(State.equal t.row_equal) in
+  let%sub { State.selected_row; current_frame } = return state in
+  let row =
+    let%map selected_row = selected_row in
     let row = t.row_selector selected_row in
     if t.framecounts.(row) <= 0
     then raise_s [%message "Invalid row" (row : int) (t.framecounts : int array)];
-    let%map.Incr frame =
-      match current_frame with
-      | `Constant frame ->
-        if frame >= t.framecounts.(row)
-        then raise_s [%message "Frame out of bounds" (row : int) (frame : int)];
-        Incr.return frame
-      | `Cycle step ->
-        let variable = Incr.Var.create 0 in
-        let%bind.Incr () = Incr.Clock.at_intervals clock step in
-        Incr.Var.replace variable ~f:(fun i -> Int.succ i mod t.framecounts.(row));
-        Incr.Var.watch variable
-    in
-    row, frame
+    row
+  in
+  let%sub frame =
+    match%sub current_frame with
+    | `Constant frame ->
+      let%arr frame = frame
+      and row = row in
+      if frame >= t.framecounts.(row)
+      then raise_s [%message "Frame out of bounds" (row : int) (frame : int)];
+      frame
+    | `Cycle_every_n_frames every_n_frame ->
+      cycle_frames
+        ~every_n_frame
+        ~count:
+          (let%map row = row in
+           t.framecounts.(row))
   in
   let target =
-    match%map.Incr target with
+    match%map target with
     | `Position { Draw_actions.Vector2.x; y } ->
       { Draw_actions.Rectangle.x; y; w = Float.of_int t.width; h = Float.of_int t.height }
     | `Rectangle rect -> rect
   in
-  let%bind.Incr state = input in
-  let%map.Incr row, frame = of_state state
+  let%arr row = row
+  and frame = frame
   and tint = tint
   and flip_x = flip_x
   and flip_y = flip_y
   and target = target in
   Draw_actions.Instructions.Texture
-    { texture = t.sprite_sheet
+    { texture = Lazy.force t.sprite_sheet
     ; source =
         { x = Float.of_int (frame * t.width)
         ; y = Float.of_int (row * t.height)

@@ -1,4 +1,6 @@
 open! Core
+open! Bonsai
+open Let_syntax
 
 let width = 800
 let height = 450
@@ -35,54 +37,103 @@ module Actions = struct
     | Jump
     | Distress
     | Death
-  [@@deriving equal, variants]
+  [@@deriving sexp, equal, variants]
 end
 
 module State = struct
   type t =
-    { x_displacement : float Incr.Var.t
-    ; camera_rotation : float Incr.Var.t
-    ; zoom : float Incr.Var.t
-    ; current_action : Actions.t Incr.Var.t
-    ; facing : [ `Right | `Left ] option Incr.Var.t
+    { x_displacement : float
+    ; camera_rotation : float
+    ; zoom : float
+    ; current_action : Actions.t
+    ; facing : [ `Right | `Left ] option
     }
+  [@@deriving sexp, equal]
 
-  let init () =
-    { x_displacement = Incr.Var.create 0.
-    ; camera_rotation = Incr.Var.create 0.
-    ; zoom = Incr.Var.create 1.
-    ; current_action = Incr.Var.create Actions.Idling
-    ; facing = Incr.Var.create None
+  let initial =
+    { x_displacement = 0.
+    ; camera_rotation = 0.
+    ; zoom = 1.
+    ; current_action = Idling
+    ; facing = None
     }
-  ;;
-
-  let update_from_input
-    { x_displacement; camera_rotation; zoom; current_action; facing }
-    { Input.move_right; move_left; rotate_right; rotate_left; scroll_wheel; reset }
-    =
-    Incr.Var.set current_action Idling;
-    if move_right
-    then (
-      Incr.Var.replace x_displacement ~f:(fun x -> x +. 2.0);
-      Incr.Var.set facing (Some `Right);
-      Incr.Var.set current_action Walking);
-    if move_left
-    then (
-      Incr.Var.replace x_displacement ~f:(fun x -> x -. 2.0);
-      Incr.Var.set facing (Some `Left);
-      Incr.Var.set current_action Walking);
-    if rotate_right
-    then Incr.Var.replace camera_rotation ~f:(fun r -> r -. 1.0 |> Float.max (-40.));
-    if rotate_left
-    then Incr.Var.replace camera_rotation ~f:(fun r -> r +. 1.0 |> Float.min 40.);
-    Incr.Var.replace zoom ~f:(fun zoom ->
-      zoom +. (scroll_wheel *. 0.05) |> Float.clamp_exn ~min:0.1 ~max:3.0);
-    if reset
-    then (
-      Incr.Var.set camera_rotation 0.;
-      Incr.Var.set zoom 1.)
   ;;
 end
+
+let make_state () =
+  let%sub state, set_state = Bonsai.state (module State) ~default_model:State.initial in
+  let%sub yoinked_state = yoink state in
+  let%sub () =
+    Bonsai.Edge.after_display
+      (let%map yoinked_state = yoinked_state
+       and set_state = set_state in
+       let%bind.Ui_effect state = yoinked_state in
+       match state with
+       | Computation_status.Active state ->
+         set_state { state with current_action = Idling }
+       | Inactive -> Ui_effect.Ignore)
+  in
+  let wrap_fn ~f =
+    let%map yoinked_state = yoinked_state
+    and set_state = set_state in
+    fun v ->
+      let%bind.Ui_effect state = yoinked_state in
+      match state with
+      | Computation_status.Active state ->
+        (match f v state with
+         | None -> Ui_effect.Ignore
+         | Some state -> set_state state)
+      | Inactive -> Ui_effect.Ignore
+  in
+  let many_keys keys ~f =
+    List.map keys ~f:(fun key ->
+      Engine.Registered_events.key_down
+        (Value.return key)
+        ~f:(wrap_fn ~f:(fun () state -> f state)))
+    |> Bonsai.Computation.all_unit
+  in
+  let%sub () =
+    many_keys [ Right; D ] ~f:(fun state ->
+      Some
+        { state with
+          x_displacement = state.x_displacement +. 2.
+        ; facing = Some `Right
+        ; current_action = Walking
+        })
+  in
+  let%sub () =
+    many_keys [ Left; A ] ~f:(fun state ->
+      Some
+        { state with
+          x_displacement = state.x_displacement -. 2.
+        ; facing = Some `Left
+        ; current_action = Walking
+        })
+  in
+  let%sub () =
+    many_keys [ E ] ~f:(fun state ->
+      Some
+        { state with camera_rotation = state.camera_rotation -. 1.0 |> Float.max (-40.) })
+  in
+  let%sub () =
+    many_keys [ Q ] ~f:(fun state ->
+      Some { state with camera_rotation = state.camera_rotation +. 1.0 |> Float.min 40. })
+  in
+  let%sub () =
+    many_keys [ R ] ~f:(fun state -> Some { state with camera_rotation = 0.; zoom = 1. })
+  in
+  let%sub () =
+    Engine.Registered_events.mouse_wheel_move
+      ~f:
+        (wrap_fn ~f:(fun scroll_wheel state ->
+           Some
+             { state with
+               zoom =
+                 state.zoom +. (scroll_wheel *. 0.05) |> Float.clamp_exn ~min:0.1 ~max:3.0
+             }))
+  in
+  return state
+;;
 
 let generate_random_buildings () =
   let open Draw_actions in
@@ -110,7 +161,7 @@ let generate_random_buildings () =
   |> Sequence.to_list
 ;;
 
-let make_rendering input clock ~sprite_file =
+let make_rendering ~sprite_file =
   let open Draw_actions in
   let width = Float.of_int width in
   let height = Float.of_int height in
@@ -123,35 +174,31 @@ let make_rendering input clock ~sprite_file =
       ~row_selector:Actions.Variants.to_rank
       ~row_equal:Actions.equal
   in
-  let ({ State.x_displacement; camera_rotation; zoom; current_action; facing } as state) =
-    State.init ()
+  let%sub { State.x_displacement; camera_rotation; zoom; current_action; facing } =
+    make_state ()
   in
   let buildings = generate_random_buildings () in
   let player =
-    let%map.Incr x_displacement = Incr.Var.watch x_displacement in
+    let%map x_displacement = x_displacement in
     { Rectangle.x = 400. +. x_displacement; y = 280.0; w = 40.0; h = 40.0 }
   in
-  let%map.Incr input = input
-  and player = player
-  and rotation = Incr.Var.watch camera_rotation
-  and zoom = Incr.Var.watch zoom
-  and sprite =
+  let%sub sprite =
     Sprite_sheet.create
       sprite
       ~flip_x:
-        (match%map.Incr Incr.Var.watch facing with
+        (match%map facing with
          | None | Some `Right -> false
          | Some `Left -> true)
       ~target:
-        (let%map.Incr player = player in
+        (let%map player = player in
          `Rectangle player)
-      ~clock
-      (let%map.Incr selected_row = Incr.Var.watch current_action in
-       { Sprite_sheet.State.selected_row
-       ; current_frame = `Cycle (Time_ns.Span.of_ms 100.)
-       })
+      (let%map selected_row = current_action in
+       { Sprite_sheet.State.selected_row; current_frame = `Cycle_every_n_frames 5 })
   in
-  State.update_from_input state input;
+  let%arr player = player
+  and rotation = camera_rotation
+  and zoom = zoom
+  and sprite = sprite in
   let camera =
     { Camera2D.offset = Vector2.create (width /. 2.0) (height /. 2.0)
     ; target = Vector2.create (player.x +. 20.0) (player.y +. 20.0)
@@ -248,4 +295,4 @@ let config : Engine.Config.t =
   }
 ;;
 
-let run sprite_file = Engine.run config input (make_rendering ~sprite_file)
+let run sprite_file = Engine.run config (make_rendering ~sprite_file)
