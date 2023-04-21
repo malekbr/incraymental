@@ -16,7 +16,15 @@ module Vector2 = struct
     { x : float
     ; y : float
     }
-  [@@deriving sexp_of, compare]
+  [@@deriving sexp, equal, compare]
+
+  module O = struct
+    let ( + ) a b = { x = a.x +. b.x; y = a.y +. b.y }
+    let ( - ) a b = { x = a.x -. b.x; y = a.y -. b.y }
+    let ( * ) a s = { x = a.x *. s; y = a.y *. s }
+  end
+
+  include O
 
   let create x y = { x; y }
   let raylib { x; y } = Raylib.Vector2.create x y
@@ -29,6 +37,23 @@ module Camera2D = struct
     ; rotation : float
     ; zoom : float
     }
+
+  let center
+    ?(rotation = 0.)
+    ?(zoom = 1.)
+    (rectangle : Rectangle.t)
+    ~canvas_width
+    ~canvas_height
+    =
+    { offset =
+        { x = (Float.of_int canvas_width -. rectangle.w) /. 2.
+        ; y = (Float.of_int canvas_height -. rectangle.h) /. 2.
+        }
+    ; target = { x = rectangle.x; y = rectangle.y }
+    ; rotation
+    ; zoom
+    }
+  ;;
 
   let raylib { offset; target; rotation; zoom } =
     Raylib.Camera2D.create (Vector2.raylib offset) (Vector2.raylib target) rotation zoom
@@ -51,6 +76,10 @@ module Loadable_texture : sig
   type t
 
   val create : Raylib.Image.t -> t
+  val image : t -> Raylib.Image.t
+  val width : t -> int
+  val height : t -> int
+  val rect : ?top_left:Vector2.t -> t -> Rectangle.t
   val get_or_load : t -> Raylib.Texture2D.t
   val unload : t -> unit
   val diff : t list -> not_in:t list -> t list
@@ -63,7 +92,19 @@ end = struct
     ; mutable texture : Raylib.Texture2D.t option
     }
 
+  let image t = t.source
+  let width t = Raylib.Image.width t.source
+  let height t = Raylib.Image.height t.source
   let create source = { source; id = Id.create (); texture = None }
+
+  let rect ?(top_left = { Vector2.x = 0.; y = 0. }) t =
+    let { Vector2.x; y } = top_left in
+    { Rectangle.x
+    ; y
+    ; w = Raylib.Image.width t.source |> Float.of_int
+    ; h = Raylib.Image.height t.source |> Float.of_int
+    }
+  ;;
 
   let get_or_load t =
     match t.texture with
@@ -161,6 +202,15 @@ module Instructions = struct
       Raylib.begin_mode_2d (Camera2D.raylib camera);
       perform primitive;
       Raylib.end_mode_2d ()
+  ;;
+
+  let simple_texture ?(tint = Color.white) texture ~top_left =
+    Texture
+      { texture
+      ; tint
+      ; source = Loadable_texture.rect texture
+      ; target = Loadable_texture.rect ~top_left texture
+      }
   ;;
 
   module Packed = struct

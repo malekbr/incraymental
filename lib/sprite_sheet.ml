@@ -106,6 +106,10 @@ let cycle_frames ~every_n_frame ~count =
   return frame
 ;;
 
+let target_of_position t ~position:{ Draw_actions.Vector2.x; y } =
+  { Draw_actions.Rectangle.x; y; w = Float.of_int t.width; h = Float.of_int t.height }
+;;
+
 let create
   t
   ?(flip_x = Bonsai.Value.return false)
@@ -140,8 +144,7 @@ let create
   in
   let target =
     match%map target with
-    | `Position { Draw_actions.Vector2.x; y } ->
-      { Draw_actions.Rectangle.x; y; w = Float.of_int t.width; h = Float.of_int t.height }
+    | `Position position -> target_of_position t ~position
     | `Rectangle rect -> rect
   in
   let%arr row = row
