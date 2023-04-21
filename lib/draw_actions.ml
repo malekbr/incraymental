@@ -47,6 +47,44 @@ module Draw_style = struct
     | Fill
 end
 
+module Loadable_texture : sig
+  type t
+
+  val create : Raylib.Image.t -> t
+  val get_or_load : t -> Raylib.Texture2D.t
+  val unload : t -> unit
+  val diff : t list -> not_in:t list -> t list
+end = struct
+  module Id = Unique_id.Int63 ()
+
+  type t =
+    { source : Raylib.Image.t
+    ; id : Id.t
+    ; mutable texture : Raylib.Texture2D.t option
+    }
+
+  let create source = { source; id = Id.create (); texture = None }
+
+  let get_or_load t =
+    match t.texture with
+    | None ->
+      let texture = Raylib.load_texture_from_image t.source in
+      t.texture <- Some texture;
+      texture
+    | Some texture -> texture
+  ;;
+
+  let unload t =
+    Option.iter ~f:Raylib.unload_texture t.texture;
+    t.texture <- None
+  ;;
+
+  let diff ts ~not_in =
+    let ids = List.map not_in ~f:(fun t -> t.id) |> Id.Set.of_list in
+    List.filter ts ~f:(fun t -> not (Set.mem ids t.id))
+  ;;
+end
+
 module Instructions = struct
   type 'a t =
     | Rectangle :
@@ -70,7 +108,7 @@ module Instructions = struct
         }
         -> [> `Primitive ] t
     | Texture :
-        { texture : Raylib.Texture2D.t
+        { texture : Loadable_texture.t
         ; source : Rectangle.t
         ; target : Rectangle.t
         ; tint : Color.t
@@ -112,7 +150,7 @@ module Instructions = struct
         color
     | Texture { texture; source; target; tint } ->
       Raylib.draw_texture_pro
-        texture
+        (Loadable_texture.get_or_load texture)
         (Rectangle.raylib source)
         (Rectangle.raylib target)
         (Raylib.Vector2.zero ())
@@ -129,6 +167,17 @@ module Instructions = struct
     type 'a outer = 'a t
     type t = T : 'a outer -> t
   end
+
+  let rec fold_preorder (Packed.T t as packed) ~init ~f =
+    match t with
+    | Many ts ->
+      let init = f init packed in
+      List.fold ts ~init ~f:(fun init t -> fold_preorder (T t) ~init ~f)
+    | Mode_2d (_, primitive) ->
+      let init = f init packed in
+      fold_preorder (T primitive) ~init ~f
+    | Texture _ | Text _ | Line _ | Rectangle _ -> f init packed
+  ;;
 end
 
 type t =
@@ -136,9 +185,22 @@ type t =
   ; background_color : Color.t
   }
 
+let empty = { instructions = T (Many []); background_color = Color.white }
+
 let perform { instructions = T instructions; background_color } =
   Raylib.begin_drawing ();
   Raylib.clear_background background_color;
   Instructions.perform instructions;
   Raylib.end_drawing ()
+;;
+
+let unload t ~old =
+  let get_textures t =
+    Instructions.fold_preorder t.instructions ~init:[] ~f:(fun acc (T t) ->
+      match t with
+      | Texture { texture; _ } -> texture :: acc
+      | _ -> acc)
+  in
+  Loadable_texture.diff ~not_in:(get_textures t) (get_textures old)
+  |> List.iter ~f:Loadable_texture.unload
 ;;

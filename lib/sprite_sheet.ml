@@ -5,7 +5,7 @@ open Bonsai.Let_syntax
 type -'row t =
   { width : int
   ; height : int
-  ; sprite_sheet : Raylib.Texture2D.t lazy_t
+  ; sprite_sheet : Draw_actions.Loadable_texture.t
   ; framecounts : int array
   ; row_selector : 'row -> int
   ; row_equal : 'row -> 'row -> bool
@@ -70,7 +70,7 @@ let load_exn sprite_sheet ~framecounts ~width ~height ~row_selector ~row_equal =
   in
   { width
   ; height
-  ; sprite_sheet = lazy (Raylib.load_texture_from_image sprite_sheet)
+  ; sprite_sheet = Draw_actions.Loadable_texture.create sprite_sheet
   ; framecounts
   ; row_selector
   ; row_equal
@@ -151,7 +151,7 @@ let create
   and flip_y = flip_y
   and target = target in
   Draw_actions.Instructions.Texture
-    { texture = Lazy.force t.sprite_sheet
+    { texture = t.sprite_sheet
     ; source =
         { x = Float.of_int (frame * t.width)
         ; y = Float.of_int (row * t.height)
