@@ -1,12 +1,10 @@
 open! Core
 
 module Registered_events = struct
-  module Id = Unique_id.Int63 ()
-
-  let handlers = Id.Table.create ()
+  let handlers = String.Table.create ()
 
   let make_event (type a) ~(enabled : (unit -> a option) Bonsai.Value.t) ~f =
-    let id = Id.create () in
+    let%sub.Bonsai id = Bonsai.path_id in
     let%sub.Bonsai () =
       Bonsai.Edge.on_change
         (module struct
@@ -16,20 +14,21 @@ module Registered_events = struct
           let equal = phys_equal
         end)
         ~callback:
-          (Bonsai.Value.return (fun (enabled, f) ->
+          (let%map.Bonsai id = id in
+           fun (enabled, f) ->
              Ui_effect.of_sync_fun
                (fun () ->
                  Hashtbl.set handlers ~key:id ~data:(fun () ->
                    match enabled () with
                    | None -> ()
                    | Some v -> f v |> Ui_effect.Expert.handle))
-               ()))
+               ())
         (Bonsai.Value.both enabled f)
     in
     Bonsai.Edge.lifecycle
       ~on_deactivate:
-        (Bonsai.Value.return
-           (Ui_effect.of_sync_fun (fun () -> Hashtbl.remove handlers id) ()))
+        (let%map.Bonsai id = id in
+         Ui_effect.of_sync_fun (fun () -> Hashtbl.remove handlers id) ())
       ()
   ;;
 
@@ -50,65 +49,6 @@ module Registered_events = struct
            | v -> Some v))
       ~f
   ;;
-end
-
-module Input = struct
-  module T = struct
-    type 'a t =
-      { update : unit -> unit
-      ; value : 'a Bonsai.Value.t
-      }
-
-    let return v = { update = const (); value = Bonsai.Value.return v }
-
-    let map2 a b ~f =
-      { update =
-          (fun () ->
-            a.update ();
-            b.update ())
-      ; value = Bonsai.Value.map2 a.value b.value ~f
-      }
-    ;;
-
-    let map =
-      `Custom (fun { update; value } ~f -> { update; value = Bonsai.Value.map value ~f })
-    ;;
-  end
-
-  module CT = struct
-    include T
-    include Applicative.Make_using_map2 (T)
-  end
-
-  include CT
-
-  module Creators = struct
-    let key_down key =
-      let var = Bonsai.Var.create false in
-      { update = (fun () -> Bonsai.Var.set var (Raylib.is_key_down key))
-      ; value = Bonsai.Var.value var
-      }
-    ;;
-
-    let mouse_wheel_move () =
-      let var = Bonsai.Var.create 0.0 in
-      { update = (fun () -> Bonsai.Var.set var (Raylib.get_mouse_wheel_move ()))
-      ; value = Bonsai.Var.value var
-      }
-    ;;
-
-    module Key = Raylib.Key
-  end
-
-  include Creators
-
-  include
-    Applicative.Make_let_syntax
-      (CT)
-      (struct
-        module type S = module type of Creators
-      end)
-      (Creators)
 end
 
 module Config = struct

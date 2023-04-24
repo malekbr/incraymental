@@ -10,8 +10,13 @@ let rpg =
       ~doc:"<path> path to sprite"
   and grass_file =
     flag "-grass-sprite" (required Filename_unix.arg_type) ~doc:"<path> path to sprite"
+  and buildings_file =
+    flag
+      "-buildings-sprite"
+      (required Filename_unix.arg_type)
+      ~doc:"<path> path to sprite"
   in
-  fun () -> Game.Rpg.run ~character_file ~grass_file
+  fun () -> Game.Rpg.run ~character_file ~grass_file ~buildings_file
 ;;
 
 let sample =

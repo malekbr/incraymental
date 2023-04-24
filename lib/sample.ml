@@ -5,28 +5,6 @@ open Let_syntax
 let width = 800
 let height = 450
 
-module Input = struct
-  type t =
-    { move_right : bool
-    ; move_left : bool
-    ; rotate_right : bool
-    ; rotate_left : bool
-    ; scroll_wheel : float
-    ; reset : bool
-    }
-end
-
-let input =
-  let%map_open.Engine.Input move_right =
-    Engine.Input.map2 (key_down D) (key_down Right) ~f:( || )
-  and move_left = Engine.Input.map2 (key_down A) (key_down Left) ~f:( || )
-  and rotate_right = key_down E
-  and rotate_left = key_down Q
-  and reset = key_down R
-  and scroll_wheel = mouse_wheel_move () in
-  { Input.move_left; move_right; rotate_right; rotate_left; scroll_wheel; reset }
-;;
-
 module Actions = struct
   type t =
     | Idling

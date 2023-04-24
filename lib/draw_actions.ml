@@ -9,6 +9,7 @@ module Rectangle = struct
     }
 
   let raylib { x; y; w; h } = Raylib.Rectangle.create x y w h
+  let scale t s = { t with w = t.w *. s; h = t.h *. s }
 end
 
 module Vector2 = struct

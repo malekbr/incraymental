@@ -25,9 +25,14 @@ module Sprite_files = struct
   type t =
     { character : Direction.t Sprite_sheet.t
     ; grass : Draw_actions.Loadable_texture.t
+    ; buildings : Draw_actions.Loadable_texture.t
     }
 
-  let load ~character_file ~grass_file =
+  let symmetric_small_house_rect =
+    { Draw_actions.Rectangle.h = 64.; w = 72.; x = 210.; y = 118. }
+  ;;
+
+  let load ~character_file ~grass_file ~buildings_file =
     let character =
       Raylib.load_image character_file
       |> Sprite_sheet.load_exn
@@ -39,6 +44,7 @@ module Sprite_files = struct
     in
     { character
     ; grass = Draw_actions.Loadable_texture.create (Raylib.load_image grass_file)
+    ; buildings = Draw_actions.Loadable_texture.create (Raylib.load_image buildings_file)
     }
   ;;
 end
@@ -119,7 +125,27 @@ let run sprite_files =
   in
   let%arr draw_action = draw_action
   and camera = camera in
-  { Draw_actions.instructions = T (Mode_2d (camera, Many [ Many grass; draw_action ]))
+  { Draw_actions.instructions =
+      T
+        (Mode_2d
+           ( camera
+           , Many
+               [ Many grass
+               ; Texture
+                   { texture = sprite_files.buildings
+                   ; tint = Raylib.Color.white
+                   ; source = Sprite_files.symmetric_small_house_rect
+                   ; target =
+                       { (Draw_actions.Rectangle.scale
+                            Sprite_files.symmetric_small_house_rect
+                            2.)
+                         with
+                         x = -100.
+                       ; y = -100.
+                       }
+                   }
+               ; draw_action
+               ] ))
   ; background_color = Raylib.Color.white
   }
 ;;
@@ -128,6 +154,8 @@ let config : Engine.Config.t =
   { target_fps = 60; width; height; config_flags = []; title = "Raylib RPG game" }
 ;;
 
-let run ~character_file ~grass_file =
-  Sprite_files.load ~character_file ~grass_file |> run |> Engine.run config
+let run ~character_file ~grass_file ~buildings_file =
+  Sprite_files.load ~character_file ~grass_file ~buildings_file
+  |> run
+  |> Engine.run config
 ;;
