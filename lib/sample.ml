@@ -18,6 +18,48 @@ module Actions = struct
   [@@deriving sexp, equal, variants]
 end
 
+module Input = struct
+  type t =
+    { move : [ `Right | `Left ] option
+    ; rotate : [ `Right | `Left ] option
+    ; wheel_move : float
+    ; reset_camera : bool
+    }
+
+  let any_key keys =
+    List.map keys ~f:(fun key -> Input.is_key_down (Value.return key))
+    |> Computation.fold_right
+         ~f:(fun a b -> Value.map2 a b ~f:( || ) |> read)
+         ~init:(Value.return false)
+  ;;
+
+  let gather =
+    let%sub move_right = any_key [ Right; D ] in
+    let%sub move_left = any_key [ Left; A ] in
+    let%sub rotate_right = any_key [ E ] in
+    let%sub rotate_left = any_key [ Q ] in
+    let%sub wheel_move = Input.mouse_wheel_move in
+    let%sub reset_camera = any_key [ R ] in
+    let%arr move_right = move_right
+    and move_left = move_left
+    and rotate_right = rotate_right
+    and rotate_left = rotate_left
+    and wheel_move = wheel_move
+    and reset_camera = reset_camera in
+    let direction right left =
+      match right, left with
+      | true, true | false, false -> None
+      | true, false -> Some `Right
+      | false, true -> Some `Left
+    in
+    { move = direction move_right move_left
+    ; rotate = direction rotate_right rotate_left
+    ; wheel_move
+    ; reset_camera
+    }
+  ;;
+end
+
 module State = struct
   type t =
     { x_displacement : float
@@ -40,75 +82,47 @@ end
 
 let make_state () =
   let%sub state, set_state = Bonsai.state (module State) ~default_model:State.initial in
-  let%sub yoinked_state = yoink state in
+  let%sub input = Input.gather in
   let%sub () =
     Bonsai.Edge.after_display
-      (let%map yoinked_state = yoinked_state
-       and set_state = set_state in
-       let%bind.Ui_effect state = yoinked_state in
-       match state with
-       | Computation_status.Active state ->
-         set_state { state with current_action = Idling }
-       | Inactive -> Ui_effect.Ignore)
-  in
-  let wrap_fn ~f =
-    let%map yoinked_state = yoinked_state
-    and set_state = set_state in
-    fun v ->
-      let%bind.Ui_effect state = yoinked_state in
-      match state with
-      | Computation_status.Active state ->
-        (match f v state with
-         | None -> Ui_effect.Ignore
-         | Some state -> set_state state)
-      | Inactive -> Ui_effect.Ignore
-  in
-  let many_keys keys ~f =
-    List.map keys ~f:(fun key ->
-      Engine.Registered_events.key_down
-        (Value.return key)
-        ~f:(wrap_fn ~f:(fun () state -> f state)))
-    |> Bonsai.Computation.all_unit
-  in
-  let%sub () =
-    many_keys [ Right; D ] ~f:(fun state ->
-      Some
-        { state with
-          x_displacement = state.x_displacement +. 2.
-        ; facing = Some `Right
-        ; current_action = Walking
-        })
-  in
-  let%sub () =
-    many_keys [ Left; A ] ~f:(fun state ->
-      Some
-        { state with
-          x_displacement = state.x_displacement -. 2.
-        ; facing = Some `Left
-        ; current_action = Walking
-        })
-  in
-  let%sub () =
-    many_keys [ E ] ~f:(fun state ->
-      Some
-        { state with camera_rotation = state.camera_rotation -. 1.0 |> Float.max (-40.) })
-  in
-  let%sub () =
-    many_keys [ Q ] ~f:(fun state ->
-      Some { state with camera_rotation = state.camera_rotation +. 1.0 |> Float.min 40. })
-  in
-  let%sub () =
-    many_keys [ R ] ~f:(fun state -> Some { state with camera_rotation = 0.; zoom = 1. })
-  in
-  let%sub () =
-    Engine.Registered_events.mouse_wheel_move
-      ~f:
-        (wrap_fn ~f:(fun scroll_wheel state ->
-           Some
+      (let%map state = state
+       and set_state = set_state
+       and { move; rotate; wheel_move; reset_camera } = input in
+       let state =
+         match move with
+         | None -> { state with current_action = Idling }
+         | Some direction ->
+           let state = { state with current_action = Walking; facing = Some direction } in
+           (match direction with
+            | `Right -> { state with x_displacement = state.x_displacement +. 2. }
+            | `Left -> { state with x_displacement = state.x_displacement -. 2. })
+       in
+       let state =
+         Option.value_map rotate ~default:state ~f:(function
+           | `Right ->
              { state with
-               zoom =
-                 state.zoom +. (scroll_wheel *. 0.05) |> Float.clamp_exn ~min:0.1 ~max:3.0
-             }))
+               camera_rotation = state.camera_rotation +. 1.0 |> Float.min 40.
+             }
+           | `Left ->
+             { state with
+               camera_rotation = state.camera_rotation -. 1.0 |> Float.max (-40.)
+             })
+       in
+       let state =
+         { state with
+           zoom = state.zoom +. (wheel_move *. 0.05) |> Float.clamp_exn ~min:0.1 ~max:3.0
+         }
+       in
+       let state =
+         if reset_camera
+         then
+           { state with
+             zoom = State.initial.zoom
+           ; camera_rotation = State.initial.camera_rotation
+           }
+         else state
+       in
+       set_state state)
   in
   return state
 ;;

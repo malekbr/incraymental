@@ -61,23 +61,24 @@ let read_character_state () =
   let%sub state, set_state =
     Bonsai.state (module Character_state) ~default_model:{ facing = Down; moving = false }
   in
+  let of_key key (direction : Direction.t) =
+    let%sub is_down = Input.is_key_down (Value.return key) in
+    let%arr is_down = is_down in
+    if is_down then Some direction else None
+  in
+  let%sub movement =
+    Computation.all [ of_key W Up; of_key A Left; of_key S Down; of_key D Right ]
+    |> Computation.map ~f:(List.find_map ~f:Fn.id)
+  in
   let%sub () =
     Edge.after_display
       (let%map set_state = set_state
-       and state = state in
-       set_state { state with moving = false })
+       and state = state
+       and movement = movement in
+       match movement with
+       | Some facing -> set_state { facing; moving = true }
+       | None -> set_state { state with moving = false })
   in
-  let set_moving key facing =
-    Engine.Registered_events.key_down
-      (Value.return key)
-      ~f:
-        (let%map set_state = set_state in
-         fun () -> set_state { facing; moving = true })
-  in
-  let%sub () = set_moving W Up in
-  let%sub () = set_moving A Left in
-  let%sub () = set_moving S Down in
-  let%sub () = set_moving D Right in
   return state
 ;;
 
@@ -123,29 +124,37 @@ let run sprite_files =
       sprite_files.grass
       ~top_left:{ x = Float.of_int (x * 64); y = Float.of_int (y * 64) }
   in
+  let%sub fps = Input.fps in
   let%arr draw_action = draw_action
-  and camera = camera in
+  and camera = camera
+  and fps = fps in
+  let in_camera : _ Draw_actions.Instructions.t =
+    Many
+      [ Many grass
+      ; Texture
+          { texture = sprite_files.buildings
+          ; tint = Raylib.Color.white
+          ; source = Sprite_files.symmetric_small_house_rect
+          ; target =
+              { (Draw_actions.Rectangle.scale Sprite_files.symmetric_small_house_rect 2.) with
+                x = -100.
+              ; y = -100.
+              }
+          }
+      ; draw_action
+      ]
+  in
   { Draw_actions.instructions =
       T
-        (Mode_2d
-           ( camera
-           , Many
-               [ Many grass
-               ; Texture
-                   { texture = sprite_files.buildings
-                   ; tint = Raylib.Color.white
-                   ; source = Sprite_files.symmetric_small_house_rect
-                   ; target =
-                       { (Draw_actions.Rectangle.scale
-                            Sprite_files.symmetric_small_house_rect
-                            2.)
-                         with
-                         x = -100.
-                       ; y = -100.
-                       }
-                   }
-               ; draw_action
-               ] ))
+        (Many
+           [ Mode_2d (camera, in_camera)
+           ; Text
+               { content = [%string "FPS: %{fps#Int}"]
+               ; position = { x = 10.; y = 10. }
+               ; font_size = 18
+               ; color = Raylib.Color.yellow
+               }
+           ])
   ; background_color = Raylib.Color.white
   }
 ;;
