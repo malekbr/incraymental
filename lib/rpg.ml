@@ -115,14 +115,16 @@ let run sprite_files =
     |> Draw_actions.Camera2D.center ~canvas_width:width ~canvas_height:height
   in
   let grass =
-    (* TODO this should be a repeat thing *)
-    Sequence.to_list_rev
-    @@
-    let%bind.Sequence x = Sequence.range (-100) 100 in
-    let%map.Sequence y = Sequence.range (-100) 100 in
-    Draw_actions.Instructions.simple_texture
-      sprite_files.grass
-      ~top_left:{ x = Float.of_int (x * 64); y = Float.of_int (y * 64) }
+    Draw_actions.Instructions.Tile
+      { start = { x = -6400.; y = -6400. }
+      ; step = { x = 64.; y = 64. }
+      ; repeat_x = 200
+      ; repeat_y = 200
+      ; tile =
+          Draw_actions.Instructions.simple_texture
+            sprite_files.grass
+            ~top_left:{ x = 0.; y = 0. }
+      }
   in
   let%sub fps = Input.fps in
   let%arr draw_action = draw_action
@@ -130,7 +132,7 @@ let run sprite_files =
   and fps = fps in
   let in_camera : _ Draw_actions.Instructions.t =
     Many
-      [ Many grass
+      [ grass
       ; Texture
           { texture = sprite_files.buildings
           ; tint = Raylib.Color.white

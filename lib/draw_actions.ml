@@ -157,6 +157,14 @@ module Instructions = struct
         }
         -> [> `Primitive ] t
     | Many : 'a t list -> 'a t
+    | Tile :
+        { start : Vector2.t
+        ; step : Vector2.t
+        ; repeat_x : int
+        ; repeat_y : int
+        ; tile : [ `Primitive ] t
+        }
+        -> [> `Primitive ] t
     | Mode_2d : Camera2D.t * [ `Primitive ] t -> [> `Primitive | `Camera2D ] t
 
   let rec perform : type a. a t -> unit = function
@@ -199,6 +207,18 @@ module Instructions = struct
         0.
         tint
     | Many ts -> List.iter ~f:perform ts
+    | Tile { start; step; repeat_x; repeat_y; tile } ->
+      Raylib.Rlgl.push_matrix ();
+      Raylib.Rlgl.translatef start.x start.y 0.;
+      for _ = 0 to repeat_x - 1 do
+        for _ = 0 to repeat_y - 1 do
+          Raylib.Rlgl.translatef 0. step.y 0.;
+          perform tile
+        done;
+        Raylib.Rlgl.translatef step.x 0. 0.;
+        Raylib.Rlgl.translatef 0. (Float.of_int (-repeat_y) *. step.x) 0.
+      done;
+      Raylib.Rlgl.pop_matrix ()
     | Mode_2d (camera, primitive) ->
       Raylib.begin_mode_2d (Camera2D.raylib camera);
       perform primitive;
@@ -227,6 +247,9 @@ module Instructions = struct
     | Mode_2d (_, primitive) ->
       let init = f init packed in
       fold_preorder (T primitive) ~init ~f
+    | Tile { tile; _ } ->
+      let init = f init packed in
+      fold_preorder (T tile) ~init ~f
     | Texture _ | Text _ | Line _ | Rectangle _ -> f init packed
   ;;
 end
