@@ -47,8 +47,8 @@ module Camera2D = struct
     ~canvas_height
     =
     { offset =
-        { x = (Float.of_int canvas_width -. rectangle.w) /. 2.
-        ; y = (Float.of_int canvas_height -. rectangle.h) /. 2.
+        { x = (Float.of_int canvas_width -. (zoom *. rectangle.w)) /. 2.
+        ; y = (Float.of_int canvas_height -. (zoom *. rectangle.h)) /. 2.
         }
     ; target = { x = rectangle.x; y = rectangle.y }
     ; rotation

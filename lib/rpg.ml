@@ -82,11 +82,29 @@ let read_character_state () =
   return state
 ;;
 
+let zoom () =
+  let%sub zoom, set_zoom = state (module Float) ~default_model:1. in
+  let%sub delta_zoom = Input.mouse_wheel_move in
+  let%sub () =
+    Edge.after_display
+    @@
+    let%map delta_zoom = delta_zoom
+    and set_zoom = set_zoom
+    and zoom = zoom in
+    Float.log zoom +. (0.5 *. delta_zoom)
+    |> Float.exp
+    |> Float.clamp_exn ~min:0.1 ~max:10.
+    |> set_zoom
+  in
+  return zoom
+;;
+
 let run sprite_files =
   let%sub state = read_character_state () in
   let%sub position, set_position =
     Bonsai.state (module Draw_actions.Vector2) ~default_model:{ x = 0.; y = 0. }
   in
+  let%sub zoom = zoom () in
   let%sub () =
     Edge.after_display
       (let%map state = state
@@ -110,16 +128,17 @@ let run sprite_files =
        })
   in
   let camera =
-    let%map position = position in
+    let%map position = position
+    and zoom = zoom in
     Sprite_sheet.target_of_position sprite_files.character ~position
-    |> Draw_actions.Camera2D.center ~canvas_width:width ~canvas_height:height
+    |> Draw_actions.Camera2D.center ~zoom ~canvas_width:width ~canvas_height:height
   in
   let grass =
     Draw_actions.Instructions.Tile
-      { start = { x = -6400.; y = -6400. }
+      { start = { x = -3200.; y = -3200. }
       ; step = { x = 64.; y = 64. }
-      ; repeat_x = 200
-      ; repeat_y = 200
+      ; repeat_x = 100
+      ; repeat_y = 100
       ; tile =
           Draw_actions.Instructions.simple_texture
             sprite_files.grass
