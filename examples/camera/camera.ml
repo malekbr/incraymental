@@ -1,5 +1,6 @@
 open! Core
 open! Bonsai
+open! Game
 open Let_syntax
 
 let width = 800
@@ -288,3 +289,14 @@ let config : Engine.Config.t =
 ;;
 
 let run sprite_file = Engine.run config (make_rendering ~sprite_file)
+
+let command =
+  Command.basic ~summary:"Run the game"
+  @@
+  let%map_open.Command sprite =
+    flag "-sprite" (required Filename_unix.arg_type) ~doc:"<path> path to sprite"
+  in
+  fun () -> run sprite
+;;
+
+let () = Command_unix.run command

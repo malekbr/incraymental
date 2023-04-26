@@ -1,4 +1,5 @@
 (library
+ (public_name game)
  (name game)
  (libraries core raylib incremental bonsai bonsai.driver)
  (preprocess
