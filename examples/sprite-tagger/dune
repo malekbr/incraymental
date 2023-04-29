@@ -1,0 +1,6 @@
+(executable
+ (public_name incraymental.sprite-tagger)
+ (name sprite_tagger)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai))
+ (libraries game core bonsai core_unix.command_unix core_unix.filename_unix))

@@ -135,16 +135,12 @@ let run sprite_files =
     |> Draw_actions.Camera2D.center ~zoom ~canvas_width:width ~canvas_height:height
   in
   let grass =
-    Draw_actions.Instructions.Tile
-      { start = { x = -3200.; y = -3200. }
-      ; step = { x = 64.; y = 64. }
-      ; repeat_x = 100
-      ; repeat_y = 100
-      ; tile =
-          Draw_actions.Instructions.simple_texture
-            sprite_files.grass
-            ~top_left:{ x = 0.; y = 0. }
-      }
+    Draw_actions.Instructions.Sequence
+      (let%bind.Sequence x = Sequence.range (-3200) 3200 ~stride:64 in
+       let%map.Sequence y = Sequence.range (-3200) 3200 ~stride:64 in
+       Draw_actions.Instructions.simple_texture
+         sprite_files.grass
+         ~top_left:{ x = Int.to_float x; y = Int.to_float y })
   in
   let%sub fps = Input.fps in
   let%arr draw_action = draw_action
